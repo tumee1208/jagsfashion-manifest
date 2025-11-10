@@ -2,7 +2,7 @@
   "name": "Jags Fashion",
   "short_name": "Jags",
   "description": "Premium sunglasses and eyewear",
-  "start_url": "/",
+  "start_url": ".",
   "scope": "/",
   "display": "standalone",
   "background_color": "#1a1a2e",
