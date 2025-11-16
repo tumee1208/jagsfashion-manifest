@@ -1,8 +1,8 @@
-﻿// Jag's Fashion - Service Worker v2.0.3
+// Jag's Fashion - Service Worker v2.0.4
+// Fixed: Response locking/distribution errors by properly cloning responses before caching
 // Fixed: CSS files now use network-first strategy to load properly on navigation
 // Fixed: Better error handling for missing files on first load
 // Fixed: Only cache successful responses
-// Fixed: Response clone error - clone before returning response
 
 const VERSION = '2.0.5';
 const STATIC_CACHE = `jagsfashion-static-v${VERSION}`;
@@ -139,13 +139,14 @@ self.addEventListener('fetch', (event) => {
             }).then((fetchResponse) => {
                 // Only cache successful responses
                 if (fetchResponse.ok) {
-                    // Clone BEFORE returning to avoid "already used" error
-                    const responseClone = fetchResponse.clone();
+                    // Clone the response first
+                    const responseToCache = fetchResponse.clone();
                     // Update cache with fresh content (async, don't await)
                     caches.open(DYNAMIC_CACHE).then((cache) => {
-                        cache.put(request, responseClone);
-                    });
+                        cache.put(request, responseToCache);
+                    }).catch(err => console.log('Cache put failed:', err));
                 }
+                // Return the original response
                 return fetchResponse;
             }).catch(() => {
                 // Network failed, use cache as fallback
@@ -181,17 +182,14 @@ self.addEventListener('fetch', (event) => {
                         // Cache expired, fetch fresh
                         try {
                             const freshResponse = await fetch(request);
-                            const clonedResponse = freshResponse.clone();
-                            caches.open(DYNAMIC_CACHE).then((cache) => {
-                                const headers = new Headers(clonedResponse.headers);
-                                headers.append('sw-cache-date', Date.now().toString());
-                                const responseWithDate = new Response(clonedResponse.body, {
-                                    status: clonedResponse.status,
-                                    statusText: clonedResponse.statusText,
-                                    headers: headers
-                                });
-                                cache.put(request, responseWithDate);
-                            });
+                            if (freshResponse.ok) {
+                                // Clone for caching
+                                const responseToCache = freshResponse.clone();
+                                // Cache asynchronously
+                                caches.open(DYNAMIC_CACHE).then((cache) => {
+                                    cache.put(request, responseToCache);
+                                }).catch(err => console.log('Cache put failed:', err));
+                            }
                             return freshResponse;
                         } catch (error) {
                             // Network failed, use stale cache
@@ -209,17 +207,16 @@ self.addEventListener('fetch', (event) => {
                     return fetchResponse;
                 }
                 
-                return caches.open(DYNAMIC_CACHE).then((cache) => {
-                    const headers = new Headers(fetchResponse.headers);
-                    headers.append('sw-cache-date', Date.now().toString());
-                    const responseWithDate = new Response(fetchResponse.body, {
-                        status: fetchResponse.status,
-                        statusText: fetchResponse.statusText,
-                        headers: headers
-                    });
-                    cache.put(request, responseWithDate.clone());
-                    return fetchResponse;
-                });
+                // Clone the response for caching
+                const responseToCache = fetchResponse.clone();
+                
+                // Cache asynchronously
+                caches.open(DYNAMIC_CACHE).then((cache) => {
+                    cache.put(request, responseToCache);
+                }).catch(err => console.log('Cache put failed:', err));
+                
+                // Return the original response immediately
+                return fetchResponse;
             }).catch((error) => {
                 // Network failed completely
                 return new Response('', { status: 503, statusText: 'Service Unavailable' });
