@@ -4,7 +4,7 @@
 // Fixed: Only cache successful responses
 // Fixed: Response clone error - clone before returning response
 
-const VERSION = '2.0.3';
+const VERSION = '2.0.4';
 const STATIC_CACHE = `jagsfashion-static-v${VERSION}`;
 const DYNAMIC_CACHE = `jagsfashion-dynamic-v${VERSION}`;
 const CACHE_EXPIRATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
