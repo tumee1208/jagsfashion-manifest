@@ -4,7 +4,7 @@
 // Fixed: Better error handling for missing files on first load
 // Fixed: Only cache successful responses
 
-const VERSION = '2.0.5';
+const VERSION = '2.0.6';
 const STATIC_CACHE = `jagsfashion-static-v${VERSION}`;
 const DYNAMIC_CACHE = `jagsfashion-dynamic-v${VERSION}`;
 const CACHE_EXPIRATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
@@ -139,6 +139,13 @@ self.addEventListener('fetch', (event) => {
             }).then((fetchResponse) => {
                 // Only cache successful responses
                 if (fetchResponse.ok) {
+                    // Check for bot protection (HTML disguised as JS)
+                    const contentType = fetchResponse.headers.get('content-type');
+                    if (request.url.endsWith('.js') && contentType && contentType.includes('text/html')) {
+                        // Do not cache HTML responses for JS files
+                        return fetchResponse;
+                    }
+
                     // Clone the response first
                     const responseToCache = fetchResponse.clone();
                     // Update cache with fresh content (async, don't await)
