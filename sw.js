@@ -1,8 +1,9 @@
-// Jag's Fashion - Service Worker v2.0.4
+// Jag's Fashion - Service Worker v2.0.6
 // Fixed: Response locking/distribution errors by properly cloning responses before caching
 // Fixed: CSS files now use network-first strategy to load properly on navigation
 // Fixed: Better error handling for missing files on first load
 // Fixed: Only cache successful responses
+// Update: Switched to Stale-While-Revalidate for HTML/CSS/JS for instant loading
 
 const VERSION = '2.0.6';
 const STATIC_CACHE = `jagsfashion-static-v${VERSION}`;
@@ -128,50 +129,52 @@ self.addEventListener('fetch', (event) => {
         return;
     }
     
-    // HTML, JS, and CSS files - NETWORK FIRST with cache fallback (prevents stale content)
+    // HTML, JS, and CSS files - Stale-While-Revalidate (Instant load + Background update)
     if (request.url.endsWith('.html') || 
         request.url.endsWith('.js') || 
         request.url.endsWith('.css') || 
         request.url.endsWith('/')) {
+        
         event.respondWith(
-            fetch(request, {
-                cache: 'no-cache'
-            }).then((fetchResponse) => {
-                // Only cache successful responses
-                if (fetchResponse.ok) {
-                    // Check for bot protection (HTML disguised as JS)
-                    const contentType = fetchResponse.headers.get('content-type');
-                    if (request.url.endsWith('.js') && contentType && contentType.includes('text/html')) {
-                        // Do not cache HTML responses for JS files
-                        return fetchResponse;
-                    }
+            caches.match(request).then((cachedResponse) => {
+                const fetchPromise = fetch(request, {
+                    cache: 'no-cache'
+                }).then((fetchResponse) => {
+                    // Only cache successful responses
+                    if (fetchResponse.ok) {
+                        // Check for bot protection (HTML disguised as JS)
+                        const contentType = fetchResponse.headers.get('content-type');
+                        if (request.url.endsWith('.js') && contentType && contentType.includes('text/html')) {
+                            return fetchResponse;
+                        }
 
-                    // Clone the response first
-                    const responseToCache = fetchResponse.clone();
-                    // Update cache with fresh content (async, don't await)
-                    caches.open(DYNAMIC_CACHE).then((cache) => {
-                        cache.put(request, responseToCache);
-                    }).catch(err => console.log('Cache put failed:', err));
-                }
-                // Return the original response
-                return fetchResponse;
-            }).catch(() => {
-                // Network failed, use cache as fallback
-                return caches.match(request).then((cachedResponse) => {
-                    if (cachedResponse) {
-                        return cachedResponse;
+                        // Clone the response first
+                        const responseToCache = fetchResponse.clone();
+                        // Update cache with fresh content (async, don't await)
+                        caches.open(DYNAMIC_CACHE).then((cache) => {
+                            cache.put(request, responseToCache);
+                        }).catch(err => console.log('Cache put failed:', err));
                     }
-                    // No cache available
-                    if (request.url.endsWith('.css')) {
-                        return new Response('/* CSS offline */', { 
-                            headers: { 'Content-Type': 'text/css' } 
-                        });
+                    return fetchResponse;
+                }).catch(() => {
+                    // Network failed
+                    // If we have a cached response, we're fine (it was returned already)
+                    // If NOT, we need to provide a fallback
+                    if (!cachedResponse) {
+                        if (request.url.endsWith('.css')) {
+                            return new Response('/* CSS offline */', { 
+                                headers: { 'Content-Type': 'text/css' } 
+                            });
+                        }
+                        return new Response(
+                            '<html><body><h1>Оффлайн байна</h1><p>Интернет холболтоо шалгана уу.</p></body></html>',
+                            { headers: { 'Content-Type': 'text/html' } }
+                        );
                     }
-                    return new Response(
-                        '<html><body><h1>Оффлайн байна</h1><p>Интернет холболтоо шалгана уу.</p></body></html>',
-                        { headers: { 'Content-Type': 'text/html' } }
-                    );
                 });
+
+                // Return cached response immediately if available, otherwise wait for network
+                return cachedResponse || fetchPromise;
             })
         );
         return;
