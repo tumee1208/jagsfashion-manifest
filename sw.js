@@ -1,11 +1,12 @@
-// Jag's Fashion - Service Worker v2.0.6
+// Jag's Fashion - Service Worker v2.0.7
 // Fixed: Response locking/distribution errors by properly cloning responses before caching
 // Fixed: CSS files now use network-first strategy to load properly on navigation
 // Fixed: Better error handling for missing files on first load
 // Fixed: Only cache successful responses
 // Update: Switched to Stale-While-Revalidate for HTML/CSS/JS for instant loading
+// Update: Added Bot Protection Bypass logic
 
-const VERSION = '2.0.6';
+const VERSION = '2.0.7';
 const STATIC_CACHE = `jagsfashion-static-v${VERSION}`;
 const DYNAMIC_CACHE = `jagsfashion-dynamic-v${VERSION}`;
 const CACHE_EXPIRATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
@@ -102,6 +103,18 @@ self.addEventListener('fetch', (event) => {
                     '<svg width="300" height="300" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#f0f0f0"/><text x="50%" y="50%" font-family="Arial" font-size="16" fill="#999" text-anchor="middle" dy=".3em">Offline</text></svg>',
                     { headers: { 'Content-Type': 'image/svg+xml' } }
                 );
+            })
+        );
+        return;
+    }
+
+    // Bot Protection Bypass - Network Only, No Cache
+    if (url.searchParams.has('bot_bypass')) {
+        event.respondWith(
+            fetch(request).catch(() => {
+                return new Response('<h1>Connection Failed</h1><p>Please check your internet.</p>', {
+                    headers: { 'Content-Type': 'text/html' }
+                });
             })
         );
         return;
