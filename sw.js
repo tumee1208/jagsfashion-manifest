@@ -1,322 +1,39 @@
-// Jag's Fashion - Service Worker v2.0.7
-// Fixed: Response locking/distribution errors by properly cloning responses before caching
-// Fixed: CSS files now use network-first strategy to load properly on navigation
-// Fixed: Better error handling for missing files on first load
-// Fixed: Only cache successful responses
-// Update: Switched to Stale-While-Revalidate for HTML/CSS/JS for instant loading
-// Update: Added Bot Protection Bypass logic
+// Jag's Fashion - Service Worker v3.0.0
+// DISABLED: Service Worker is disabled - site works online only
+// This file unregisters itself and clears all caches
 
-const VERSION = '2.0.7';
-const STATIC_CACHE = `jagsfashion-static-v${VERSION}`;
-const DYNAMIC_CACHE = `jagsfashion-dynamic-v${VERSION}`;
-const CACHE_EXPIRATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+const VERSION = '3.0.0';
 
-const STATIC_ASSETS = [
-    '/',
-    '/index.html',
-    '/style.css',
-    '/script.js',
-    '/shopScript.js',
-    '/product.html',
-    '/productScript.js',
-    '/cart.html',
-    '/cartScript.js',
-    '/user.html',
-    '/userScript.js',
-    '/news.html',
-    '/newsScript.js',
-    '/about.html',
-    '/toast.js',
-    '/searchScript.js',
-    '/heroImage.js',
-    '/changeImage.js',
-    '/giftCart.js',
-    '/heartScript.js',
-    '/lensScript.js',
-    '/ratingScript.js',
-    '/prescriptionScript.js',
-    '/static-images-loader.js',
-    '/app-version.js'
-];
-
+// Immediately unregister this service worker
 self.addEventListener('install', (event) => {
-    // Force immediate activation
     self.skipWaiting();
-    
-    event.waitUntil(
-        caches.open(STATIC_CACHE)
-            .then((cache) => {
-                // Add files individually to avoid failing entire cache if one file fails
-                return Promise.allSettled(
-                    STATIC_ASSETS.map(url => 
-                        cache.add(new Request(url, {cache: 'reload'}))
-                            .catch(err => console.log(`Failed to cache ${url}:`, err))
-                    )
-                );
-            })
-            .catch((error) => {
-                console.log('Cache installation failed:', error);
-            })
-    );
 });
 
 self.addEventListener('activate', (event) => {
     event.waitUntil(
-        // Delete old caches only
+        // Delete ALL caches
         caches.keys().then((cacheNames) => {
             return Promise.all(
                 cacheNames.map((cacheName) => {
-                    if (cacheName.startsWith('jagsfashion-') && 
-                        cacheName !== STATIC_CACHE && 
-                        cacheName !== DYNAMIC_CACHE) {
-                        return caches.delete(cacheName);
-                    }
+                    console.log('Deleting cache:', cacheName);
+                    return caches.delete(cacheName);
                 })
             );
         }).then(() => {
-            return self.clients.claim();
-        })
-    );
-});
-
-self.addEventListener('fetch', (event) => {
-    const { request } = event;
-    const url = new URL(request.url);
-    
-    // Only handle same-origin requests and Cloudinary
-    if (url.origin !== location.origin && !url.hostname.includes('cloudinary.com')) {
-        return;
-    }
-    
-    // Cloudinary images - cache first with long expiration
-    if (url.hostname.includes('cloudinary.com')) {
-        event.respondWith(
-            caches.match(request).then((response) => {
-                return response || fetch(request).then((fetchResponse) => {
-                    return caches.open(DYNAMIC_CACHE).then((cache) => {
-                        cache.put(request, fetchResponse.clone());
-                        return fetchResponse;
-                    });
+            // Unregister this service worker
+            return self.registration.unregister();
+        }).then(() => {
+            // Reload all open tabs to clear SW control
+            return self.clients.matchAll().then(clients => {
+                clients.forEach(client => {
+                    client.postMessage({ action: 'reload' });
                 });
-            }).catch(() => {
-                return new Response(
-                    '<svg width="300" height="300" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#f0f0f0"/><text x="50%" y="50%" font-family="Arial" font-size="16" fill="#999" text-anchor="middle" dy=".3em">Offline</text></svg>',
-                    { headers: { 'Content-Type': 'image/svg+xml' } }
-                );
-            })
-        );
-        return;
-    }
-
-    // Bot Protection Bypass - Network Only, No Cache
-    if (url.searchParams.has('bot_bypass')) {
-        event.respondWith(
-            fetch(request).catch(() => {
-                return new Response('<h1>Connection Failed</h1><p>Please check your internet.</p>', {
-                    headers: { 'Content-Type': 'text/html' }
-                });
-            })
-        );
-        return;
-    }
-    
-    // PHP API calls - NETWORK ONLY (no cache)
-    if (request.url.includes('.php')) {
-        event.respondWith(
-            fetch(request, {
-                cache: 'no-store'
-            }).catch(() => {
-                return new Response(
-                    JSON.stringify({ 
-                        success: false,
-                        error: 'Offline', 
-                        message: 'Интернет холболт алдаатай байна. Дахин оролдоно уу.' 
-                    }),
-                    { 
-                        status: 503,
-                        headers: { 'Content-Type': 'application/json' } 
-                    }
-                );
-            })
-        );
-        return;
-    }
-    
-    // HTML, JS, and CSS files - Stale-While-Revalidate (Instant load + Background update)
-    if (request.url.endsWith('.html') || 
-        request.url.endsWith('.js') || 
-        request.url.endsWith('.css') || 
-        request.url.endsWith('/')) {
-        
-        event.respondWith(
-            caches.match(request).then((cachedResponse) => {
-                const fetchPromise = fetch(request, {
-                    cache: 'no-cache'
-                }).then((fetchResponse) => {
-                    // Only cache successful responses
-                    if (fetchResponse.ok) {
-                        // Check for bot protection (HTML disguised as JS)
-                        const contentType = fetchResponse.headers.get('content-type');
-                        if (request.url.endsWith('.js') && contentType && contentType.includes('text/html')) {
-                            return fetchResponse;
-                        }
-
-                        // Clone the response first
-                        const responseToCache = fetchResponse.clone();
-                        // Update cache with fresh content (async, don't await)
-                        caches.open(DYNAMIC_CACHE).then((cache) => {
-                            cache.put(request, responseToCache);
-                        }).catch(err => console.log('Cache put failed:', err));
-                    }
-                    return fetchResponse;
-                }).catch(() => {
-                    // Network failed
-                    // If we have a cached response, we're fine (it was returned already)
-                    // If NOT, we need to provide a fallback
-                    if (!cachedResponse) {
-                        if (request.url.endsWith('.css')) {
-                            return new Response('/* CSS offline */', { 
-                                headers: { 'Content-Type': 'text/css' } 
-                            });
-                        }
-                        return new Response(
-                            '<html><body><h1>Оффлайн байна</h1><p>Интернет холболтоо шалгана уу.</p></body></html>',
-                            { headers: { 'Content-Type': 'text/html' } }
-                        );
-                    }
-                });
-
-                // Return cached response immediately if available, otherwise wait for network
-                return cachedResponse || fetchPromise;
-            })
-        );
-        return;
-    }
-    
-    // CSS and other static assets - cache first with expiration check
-    event.respondWith(
-        caches.match(request).then(async (response) => {
-            // Check if cached response is expired
-            if (response) {
-                const cachedDate = response.headers.get('sw-cache-date');
-                if (cachedDate) {
-                    const age = Date.now() - parseInt(cachedDate);
-                    if (age > CACHE_EXPIRATION) {
-                        // Cache expired, fetch fresh
-                        try {
-                            const freshResponse = await fetch(request);
-                            if (freshResponse.ok) {
-                                // Clone for caching
-                                const responseToCache = freshResponse.clone();
-                                // Cache asynchronously
-                                caches.open(DYNAMIC_CACHE).then((cache) => {
-                                    cache.put(request, responseToCache);
-                                }).catch(err => console.log('Cache put failed:', err));
-                            }
-                            return freshResponse;
-                        } catch (error) {
-                            // Network failed, use stale cache
-                            return response;
-                        }
-                    }
-                }
-                return response;
-            }
-            
-            // No cache, fetch from network
-            return fetch(request).then((fetchResponse) => {
-                // Only cache successful responses
-                if (!fetchResponse.ok) {
-                    return fetchResponse;
-                }
-                
-                // Clone the response for caching
-                const responseToCache = fetchResponse.clone();
-                
-                // Cache asynchronously
-                caches.open(DYNAMIC_CACHE).then((cache) => {
-                    cache.put(request, responseToCache);
-                }).catch(err => console.log('Cache put failed:', err));
-                
-                // Return the original response immediately
-                return fetchResponse;
-            }).catch((error) => {
-                // Network failed completely
-                return new Response('', { status: 503, statusText: 'Service Unavailable' });
             });
         })
     );
 });
 
-self.addEventListener('sync', (event) => {
-    if (event.tag === 'sync-orders') {
-        event.waitUntil(syncOrders());
-    }
+// Pass all requests directly to network - no caching
+self.addEventListener('fetch', (event) => {
+    event.respondWith(fetch(event.request));
 });
-
-async function syncOrders() {
-    try {
-        const cache = await caches.open(DYNAMIC_CACHE);
-        const requests = await cache.keys();
-        
-        const orderRequests = requests.filter(req => 
-            req.url.includes('checkout.php') || req.url.includes('order')
-        );
-        
-        for (const request of orderRequests) {
-            try {
-                await fetch(request.clone());
-                await cache.delete(request);
-            } catch (error) {
-                // Silent error handling
-            }
-        }
-    } catch (error) {
-        // Silent error handling
-    }
-}
-
-self.addEventListener('push', (event) => {
-    const data = event.data ? event.data.json() : {};
-    const title = data.title || 'Jag\'s Fashion';
-    const options = {
-        body: data.body || 'Shine medegdel',
-        icon: data.icon || '/logo-192.png',
-        badge: '/logo-192.png',
-        vibrate: [200, 100, 200],
-        data: data.url || '/'
-    };
-    
-    event.waitUntil(
-        self.registration.showNotification(title, options)
-    );
-});
-
-self.addEventListener('notificationclick', (event) => {
-    event.notification.close();
-    event.waitUntil(
-        clients.openWindow(event.notification.data || '/')
-    );
-});
-
-self.addEventListener('message', (event) => {
-    // Manual skipWaiting (not automatic)
-    if (event.data.action === 'skipWaiting') {
-        self.skipWaiting();
-    }
-    
-    // Manual cache clear (admin only)
-    if (event.data.action === 'clearCache') {
-        event.waitUntil(
-            caches.keys().then((cacheNames) => {
-                return Promise.all(
-                    cacheNames.map((cache) => caches.delete(cache))
-                );
-            }).then(() => {
-                event.ports[0].postMessage({ success: true });
-            })
-        );
-    }
-});
-
-// Silent service worker - no console output in production
