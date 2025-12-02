@@ -2,7 +2,7 @@
 // DISABLED: Service Worker is disabled - site works online only
 // This file unregisters itself and clears all caches
 
-const VERSION = '3.0.0';
+const VERSION = '2.0.8';
 
 // Immediately unregister this service worker
 self.addEventListener('install', (event) => {
